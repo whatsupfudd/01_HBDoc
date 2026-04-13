@@ -36,6 +36,8 @@ library
       HBDoc.Manage.Types
       HBDoc.Parse.Structured
       HBDoc.Render.PrettyPrint
+      HBDoc.Serialize.Edit
+      HBDoc.Serialize.Read
       HBDoc.Serialize.Statements
       HBDoc.Serialize.Types
       HBDoc.Serialize.Write

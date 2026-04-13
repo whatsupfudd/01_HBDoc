@@ -651,3 +651,134 @@ fetchNodesForTaxo =
       , depth::int4
     from xtree
   |]
+
+-- Additional statements for Block editing:
+
+-- ---------------------------------------------------------------------
+-- New block-edit statements for HBDoc v2 storage
+-- ---------------------------------------------------------------------
+
+qResequenceBlocks :: St.Statement (Int32, Maybe Int64, Maybe Int32) (Maybe Int32)
+qResequenceBlocks =
+  [maybeStatement|
+    select kms.resequence_blocks($1::int4, $2::int8?, $3::int4?)::int4
+  |]
+
+qInsertBlockAfter ::
+  St.Statement
+    ( Int64               -- anchor block uid
+    , Text                -- kind_code
+    , Maybe Text          -- kind_arg
+    , Maybe Text          -- content
+    , Maybe Ae.Value      -- sem
+    , Maybe Ae.Value      -- attrs
+    , Maybe Ae.Value      -- provenance
+    , Int32               -- actor
+    )
+    Int64
+qInsertBlockAfter =
+  [singletonStatement|
+    select kms.insert_block_after(
+        $1::int8
+      , $2::text
+      , $3::text?
+      , $4::text?
+      , $5::jsonb?
+      , $6::jsonb?
+      , $7::jsonb?
+      , $8::int4
+    )::int8
+  |]
+
+qInsertBlockBefore ::
+  St.Statement
+    ( Int64               -- anchor block uid
+    , Text                -- kind_code
+    , Maybe Text          -- kind_arg
+    , Maybe Text          -- content
+    , Maybe Ae.Value      -- sem
+    , Maybe Ae.Value      -- attrs
+    , Maybe Ae.Value      -- provenance
+    , Int32               -- actor
+    )
+    Int64
+qInsertBlockBefore =
+  [singletonStatement|
+    select kms.insert_block_before(
+        $1::int8
+      , $2::text
+      , $3::text?
+      , $4::text?
+      , $5::jsonb?
+      , $6::jsonb?
+      , $7::jsonb?
+      , $8::int4
+    )::int8
+  |]
+
+qMoveBlock ::
+  St.Statement
+    ( Int64               -- block uid
+    , Int64               -- new parent uid
+    , Maybe Int64         -- after block uid
+    , Maybe Int64         -- before block uid
+    , Maybe Int32         -- actor
+    )
+    (Maybe Int32)
+qMoveBlock =
+  [maybeStatement|
+    select
+      kms.move_block($1::int8, $2::int8, $3::int8?, $4::int8?, $5::int4?)::int4
+  |]
+
+qDeleteBlock :: St.Statement (Int64, Maybe Int32) (Maybe Int32)
+qDeleteBlock =
+  [maybeStatement|
+    select kms.delete_block($1::int8, $2::int4?)::int4
+  |]
+
+qGetSubtreeDfsAtSeq ::
+  St.Statement
+    ( Int64         -- block_id
+    , Int64         -- as_of_seq
+    , Maybe Int32   -- max_depth
+    , Int64         -- offset
+    , Maybe Int64   -- limit
+    )
+    (Vector BlockDfsRow)
+qGetSubtreeDfsAtSeq =
+  dimap id
+    (V.map (\(depthVal, blockId, parentBlockId, kindCode, kindArg, contentVal, semVal, attrsVal, provenanceVal, seqPosVal, hasMoreVal) ->
+      BlockDfsRow
+        depthVal
+        blockId
+        parentBlockId
+        kindCode
+        kindArg
+        contentVal
+        semVal
+        attrsVal
+        provenanceVal
+        seqPosVal
+        hasMoreVal))
+    [vectorStatement|
+      select
+          depth::int4
+        , block_id::int8
+        , parent_block_id::int8?
+        , kind_code::text
+        , kind_arg::text?
+        , content::text?
+        , sem::jsonb?
+        , attrs::jsonb
+        , provenance::jsonb?
+        , seq_pos::numeric
+        , has_more::bool
+      from kms.get_subtree_dfs_at_seq(
+          $1::int8
+        , $2::int8
+        , $3::int4?
+        , $4::int8
+        , $5::int8?
+      )
+    |]
