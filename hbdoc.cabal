@@ -1,0 +1,83 @@
+cabal-version: 1.12
+
+-- This file has been generated from package.yaml by hpack version 0.38.1.
+--
+-- see: https://github.com/sol/hpack
+
+name:           hbdoc
+version:        0.1.0.0
+description:    Please see the README on GitHub at <https://github.com/whatsupfudd/aoxsup#readme>
+homepage:       https://github.com/whatsupfudd/hbdoc#readme
+bug-reports:    https://github.com/whatsupfudd/hbdoc/issues
+author:         Hugo DesRosiers
+maintainer:     hugo.desrosiers@boardingcities.com
+copyright:      FUDD @ 2026.
+license:        BSD3
+build-type:     Simple
+extra-source-files:
+    README.md
+    CHANGELOG.md
+
+source-repository head
+  type: git
+  location: https://github.com/whatsupfudd/hbdoc
+
+library
+  exposed-modules:
+      HBDoc.Core.Attributes
+      HBDoc.Core.BlockKind
+      HBDoc.Core.Build
+      HBDoc.Core.ListSemantics
+      HBDoc.Core.Provenance
+      HBDoc.Core.Semantics
+      HBDoc.Core.Types
+      HBDoc.Core.Validate
+      HBDoc.Manage.Operations
+      HBDoc.Manage.Types
+      HBDoc.Parse.Structured
+      HBDoc.Render.PrettyPrint
+      HBDoc.Serialize.Statements
+      HBDoc.Serialize.Types
+      HBDoc.Serialize.Write
+  other-modules:
+      Paths_hbdoc
+  hs-source-dirs:
+      src
+  default-extensions:
+      OverloadedStrings
+      DuplicateRecordFields
+      OverloadedRecordDot
+  ghc-options: -Wcompat -Widentities -Wincomplete-record-updates -Wincomplete-uni-patterns -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
+  build-depends:
+      aeson
+    , aeson-pretty
+    , base >=4.7 && <5
+    , binary
+    , bytestring
+    , containers
+    , cryptonite
+    , data-default
+    , directory
+    , filepath
+    , hashable
+    , hasql
+    , hasql-pool
+    , hasql-th
+    , hasql-transaction
+    , megaparsec
+    , memory
+    , mtl
+    , pandoc >=3.1
+    , pandoc-types
+    , postgresql-binary
+    , profunctors
+    , scientific
+    , text
+    , time
+    , unix
+    , unordered-containers
+    , uuid
+    , vector
+    , xml-conduit
+    , zip-archive
+  default-language: Haskell2010

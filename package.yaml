@@ -1,0 +1,80 @@
+name:                hbdoc
+version:             0.1.0.0
+github:              "whatsupfudd/hbdoc"
+license:             BSD3
+author:              "Hugo DesRosiers"
+maintainer:          "hugo.desrosiers@boardingcities.com"
+copyright:           "FUDD @ 2026."
+
+extra-source-files:
+- README.md
+- CHANGELOG.md
+
+# Metadata used when publishing your package
+# synopsis:            Hierarchical Block Document model.
+# category:            Data structuring and manipulations.
+
+description:         Please see the README on GitHub at <https://github.com/whatsupfudd/aoxsup#readme>
+
+dependencies:
+  - aeson
+  - base >= 4.7 && < 5
+  - bytestring
+  - containers
+  - directory
+  - filepath
+  - text
+  - time
+  - vector
+  - unix
+  - unordered-containers
+  # For Cont(T):
+  - mtl
+  # For JSON pretty printing:
+  - aeson-pretty
+  - uuid
+  - time
+  # For SQL:
+  - postgresql-binary
+  - hasql
+  - hasql-th
+  - hasql-pool
+  - hasql-transaction
+  - profunctors
+  # For decoding serialized data:
+  - binary
+  # For xml support:
+  - zip-archive
+  - xml-conduit
+  # For Pandoc:
+  - pandoc >= 3.1
+  - pandoc-types
+  - memory
+  - cryptonite
+  - megaparsec
+  - hashable
+  # Default:
+  - data-default
+  # Serialization:
+  - scientific
+
+
+default-extensions:
+- OverloadedStrings
+- DuplicateRecordFields
+- OverloadedRecordDot
+
+ghc-options:
+# - -Wall
+# - -Wunused-matches
+- -Wcompat
+- -Widentities
+- -Wincomplete-record-updates
+- -Wincomplete-uni-patterns
+#- -Wmissing-export-lists
+- -Wmissing-home-modules
+- -Wpartial-fields
+- -Wredundant-constraints
+
+library:
+  source-dirs: src
