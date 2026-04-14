@@ -50,7 +50,7 @@ serializeDocument pool sInfo = do
           Just docId ->
             pure (Right docId)
           Nothing ->
-            pure (Left "no docId provided")
+            pure (Left "@[serializeDocument] no docId provided")
 
       case docIdRes of
         Left errTxt ->
@@ -76,48 +76,47 @@ serializeDocument pool sInfo = do
 serializeDocumentTx :: SerializeInfo docSpec blkSpec -> User -> Int32 -> Tx.Transaction (Either String Int64)
 serializeDocumentTx sInfo user docId = do
   canEdit <- Tx.statement (user.uidUsr, "edit" :: Text, docId) St.qCanUser
-  if not canEdit
-    then pure (Left "forbidden:edit")
-    else do
-      (domFk, tierFk, stFk, mRes) <- Tx.statement docId St.qDocMeta
-      mBlocked <- Tx.statement (domFk, tierFk, stFk, mRes) St.qPolicyBlockImport
-      case mBlocked of
-        Just True ->
-          pure (Left "blocked_by_policy:import")
+  if not canEdit then
+    pure (Left "forbidden:edit")
+  else do
+    (domFk, tierFk, stFk, mRes) <- Tx.statement docId St.qDocMeta
+    mBlocked <- Tx.statement (domFk, tierFk, stFk, mRes) St.qPolicyBlockImport
+    case mBlocked of
+      Just True -> pure (Left "blocked_by_policy:import")
+      _ -> do
+        _attUid <-
+          Tx.statement
+            ( docId
+            , originalName sInfo
+            , contentType sInfo
+            , size sInfo
+            , key sInfo
+            , shaHex sInfo
+            , user.uidUsr
+            )
+            St.qInsertAttachment
 
-        _ -> do
-          _attUid <-
+        rootUid <- Tx.statement (docId, user.uidUsr) St.qEnsureRoot
+
+        let rootBlk = rootBlkDc (document sInfo)
+
+        case kindBk rootBlk of
+          ContainerKB -> do
+            forM_ (childrenBk rootBlk) (writeBlockTree user.uidUsr docId (Just rootUid))
             Tx.statement
-              ( docId
-              , originalName sInfo
-              , contentType sInfo
-              , size sInfo
-              , key sInfo
-              , shaHex sInfo
-              , user.uidUsr
+              ( user.uidUsr
+              , "doc.import.blocktree" :: Text
+              , Just docId
+              , Just "document" :: Maybe Text
+              , Nothing :: Maybe Int32
+              , Nothing :: Maybe Text
               )
-              St.qInsertAttachment
+              St.qAudit
+            pure (Right rootUid)
 
-          rootUid <- Tx.statement (docId, user.uidUsr) St.qEnsureRoot
+          otherKind ->
+            pure (Left $ T.unpack ("invalid_root_kind:" <> renderKindCode otherKind))
 
-          let rootBlk = rootBlkDc (document sInfo)
-
-          case kindBk rootBlk of
-            ContainerKB -> do
-              forM_ (childrenBk rootBlk) (writeBlockTree user.uidUsr docId (Just rootUid))
-              Tx.statement
-                ( user.uidUsr
-                , "doc.import.blocktree" :: Text
-                , Just docId
-                , Just "document" :: Maybe Text
-                , Nothing :: Maybe Int32
-                , Nothing :: Maybe Text
-                )
-                St.qAudit
-              pure (Right rootUid)
-
-            otherKind ->
-              pure (Left $ T.unpack ("invalid_root_kind:" <> renderKindCode otherKind))
 
 writeBlockTree :: Int32 -> Int32 -> Maybe Int64 -> Block spec -> Tx.Transaction Int64
 writeBlockTree actor docId parentUid blk = do
