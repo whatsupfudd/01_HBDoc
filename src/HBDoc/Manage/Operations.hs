@@ -1,6 +1,8 @@
 module HBDoc.Manage.Operations where
 
 import Control.Monad (void)
+
+import Data.Functor ((<&>))
 import Data.Int (Int32)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -15,12 +17,7 @@ import qualified Hasql.Session as S
 import qualified HBDoc.Serialize.Statements as St
 import HBDoc.Manage.Types
 
--- Helpers -----------------------------------------------------
-err :: Text -> ApiResult a
-err e = ApiResult False Nothing (Just e)
-
-ok :: a -> ApiResult a
-ok a = ApiResult True (Just a) Nothing
+type DataResult a = Either String a
 
 
 -- Users/Auth --------------------------------------------------
@@ -32,37 +29,36 @@ resolveUser pool email = do
     Right aValue -> pure $ Right aValue
 
 
-canUserIO :: Pool -> Int32 -> Text -> Int32 -> IO (ApiResult Bool)
-canUserIO pool u perm d = do
-  r <- use pool (statement (u, perm, d) St.qCanUser)
-  either (pure . err . T.pack . show) (pure . ok) r
+canUser :: Pool -> Int32 -> Text -> Int32 -> IO (DataResult Bool)
+canUser pool u perm d =
+  use pool (statement (u, perm, d) St.qCanUser) <&> either (Left . show) Right
 
 
 -- Categorisation --------------------------------------------------
-listCategories :: Pool -> IO (ApiResult (V.Vector Category))
-listCategories pool = do
-  r <- use pool (statement () St.qListCategories)
-  either (pure . err . T.pack . show) (pure . ok) r
+listCategories :: Pool -> IO (DataResult (V.Vector Category))
+listCategories pool =
+  use pool (statement () St.qListCategories) <&> either (Left . show) Right
 
-fetchNodes :: Pool -> Int32 -> IO (ApiResult (V.Vector St.NodeOut))
-fetchNodes pool taxoID = do
-  r <- use pool (statement taxoID St.fetchNodesForTaxo)
-  either (pure . err . T.pack . show) (pure . ok) r
+
+fetchNodes :: Pool -> Int32 -> IO (DataResult (V.Vector St.NodeOut))
+fetchNodes pool taxoID =
+  use pool (statement taxoID St.fetchNodesForTaxo) <&> either (Left . show) Right
+
 
 -- Documents --------------------------------------------------
-listDocs :: Pool -> Maybe Int32 -> Maybe Int32 -> Maybe Int32 -> Maybe Text -> Maybe Day -> Maybe UTCTime -> IO (ApiResult (V.Vector DocRow))
-listDocs pool dom st tier q limit offset = do
-  r <- use pool (statement (dom, st, tier, q, limit, offset) St.qListDocs)
-  either (pure . err . T.pack . show) (pure . ok) r
+listDocs :: Pool -> Maybe Int32 -> Maybe Int32 -> Maybe Int32 -> Maybe Text -> Maybe Day -> Maybe UTCTime -> IO (DataResult (V.Vector DocRow))
+listDocs pool dom st tier q limit offset =
+  use pool (statement (dom, st, tier, q, limit, offset) St.qListDocs)
+    <&> either (Left . show) Right
 
 
-getDoc :: Pool -> Int32 -> IO (ApiResult DocDetail)
+getDoc :: Pool -> Int32 -> IO (DataResult DocDetail)
 getDoc pool docId = do
   r <- use pool (statement docId St.qDocDetail)
   case r of
-    Left ue -> pure $ err (T.pack $ show ue)
-    Right Nothing -> pure $ err "doc_not_found"
-    Right (Just dd) -> pure $ ok dd
+    Left ue -> pure . Left $ show ue
+    Right Nothing -> pure $ Left "@[getDoc] doc_not_found"
+    Right (Just dd) -> pure $ Right dd
 
 
 
@@ -78,92 +74,87 @@ document (title, domain_fk, doc_type_fk, tier_fk, status_fk,
 -}
 createDoc :: Pool -> Int32 -> Text -> Int32 -> Int32 -> Int32 -> Int32 -> Maybe Int32
           -> Maybe Text -> Bool -> Bool -> Maybe Day
-          -> IO (ApiResult Int32)
-createDoc pool actor title domainID typeID tierID statusID ownerID residency aiAllowed legalHold due = do
-  r <- use pool (statement (
-        title
-        , domainID, typeID, tierID, statusID, ownerID
-        , residency, aiAllowed, legalHold
-        , due, actor
-      ) St.qCreateDoc)
-  either (pure . err . T.pack . show) (pure . ok) r
+          -> IO (DataResult Int32)
+createDoc pool actor title domainID typeID tierID statusID ownerID residency aiAllowed legalHold due =
+  use pool (statement (title, domainID, typeID, tierID, statusID, ownerID
+            , residency, aiAllowed, legalHold, due, actor
+          ) St.qCreateDoc)
+    <&> either (Left . show) Right
 
 
-updateDocMeta :: Pool -> Text -> Int32 -> Int32 -> Int32 -> Int32 -> Maybe Int32 -> Maybe Text -> Bool -> Bool -> Maybe Day -> Int32 -> IO (ApiResult ())
-updateDocMeta pool title dom typ tier status owner residency aiAllowed legalHold due docId = do
-  r <- use pool (statement (title, dom, typ, tier, status, owner, residency, aiAllowed, legalHold, due, docId) St.qUpdateDocMeta)
-  either (pure . err . T.pack . show) (const $ pure $ ok ()) r
+updateDocMeta :: Pool -> Text -> Int32 -> Int32 -> Int32 -> Int32 -> Maybe Int32 -> Maybe Text -> Bool -> Bool -> Maybe Day -> Int32 -> IO (DataResult ())
+updateDocMeta pool title dom typ tier status owner residency aiAllowed legalHold due docId =
+  use pool (statement (title, dom, typ, tier, status, owner
+        , residency, aiAllowed, legalHold, due, docId
+      ) St.qUpdateDocMeta)
+    <&> either (Left . show) Right
 
 
-softDeleteDoc :: Pool -> Int32 -> IO (ApiResult ())
-softDeleteDoc pool docId = do
-  r <- use pool (statement docId St.qSoftDeleteDoc)
-  either (pure . err . T.pack . show) (const $ pure $ ok ()) r
+softDeleteDoc :: Pool -> Int32 -> IO (DataResult ())
+softDeleteDoc pool docId =
+  use pool (statement docId St.qSoftDeleteDoc) <&> either (Left . show) Right
 
 -- Versions ---------------------------------------------------
-saveVersion :: Pool -> Int32 -> Int32 -> Maybe Text -> Maybe Text -> Int32 -> IO (ApiResult Int32)
-saveVersion pool docId verNo note contentRef author = do
-  r <- use pool (statement (docId, verNo, note, contentRef, author) St.qInsertVersion)
-  either (pure . err . T.pack . show) (pure . ok) r
+saveVersion :: Pool -> Int32 -> Int32 -> Maybe Text -> Maybe Text -> Int32 -> IO (DataResult Int32)
+saveVersion pool docId verNo note contentRef author =
+  use pool (statement (docId, verNo, note, contentRef, author) St.qInsertVersion) <&> either (Left . show) Right
 
-latestVersion :: Pool -> Int32 -> IO (ApiResult (Maybe DocVersion))
-latestVersion pool docId = do
-  r <- use pool (statement docId St.qLatestVersion)
-  either (pure . err . T.pack . show) (pure . ok) r
+
+latestVersion :: Pool -> Int32 -> IO (DataResult (Maybe DocVersion))
+latestVersion pool docId =
+  use pool (statement docId St.qLatestVersion) <&> either (Left . show) Right
+
 
 -- Comments ---------------------------------------------------
-listCommentsIO :: Pool -> Int32 -> IO (ApiResult [Comment])
-listCommentsIO pool docId = do
-  r <- use pool (statement docId St.qListComments)
-  either (pure . err . T.pack . show) (pure . ok . V.toList) r
+listCommentsIO :: Pool -> Int32 -> IO (DataResult (V.Vector Comment))
+listCommentsIO pool docId =
+  use pool (statement docId St.qListComments) <&> either (Left . show) Right
 
-addCommentIO :: Pool -> Int32 -> Int32 -> Maybe Int32 -> Text -> IO (ApiResult Int32)
-addCommentIO pool actor docId parent body = do
-  r <- use pool (statement (docId, parent, actor, body) St.qAddComment)
-  either (pure . err . T.pack . show) (pure . ok) r
+addCommentIO :: Pool -> Int32 -> Int32 -> Maybe Int32 -> Text -> IO (DataResult Int32)
+addCommentIO pool actor docId parent body =
+  use pool (statement (docId, parent, actor, body) St.qAddComment) <&> either (Left . show) Right
 
-deleteCommentIO :: Pool -> Int32 -> Int32 -> IO (ApiResult ())
-deleteCommentIO pool actor commentId = do
-  r <- use pool (statement (commentId, actor) St.qDeleteComment)
-  either (pure . err . T.pack . show) (const $ pure $ ok ()) r
+deleteCommentIO :: Pool -> Int32 -> Int32 -> IO (DataResult ())
+deleteCommentIO pool actor commentId =
+  use pool (statement (commentId, actor) St.qDeleteComment) <&> either (Left . show) Right
+
 
 -- ACLs -------------------------------------------------------
-listAclIO :: Pool -> Int32 -> IO (ApiResult [AclEntry])
-listAclIO pool docId = do
-  r <- use pool (statement docId St.qListAcl)
-  either (pure . err . T.pack . show) (pure . ok . V.toList) r
+listAclIO :: Pool -> Int32 -> IO (DataResult (V.Vector AclEntry))
+listAclIO pool docId =
+  use pool (statement docId St.qListAcl) <&> either (Left . show) Right
 
 
-addAclIO :: Pool -> Int32 -> Int32 -> Text -> Maybe Int32 -> Maybe Int32 -> Maybe Int32 -> Maybe Int32 -> V.Vector Text -> Maybe Text -> Maybe Text -> IO (ApiResult Int32)
-addAclIO pool actor docId principal u g r o rights scope scopeVal = do
-  r' <- use pool (statement (docId, principal, u, g, r, o, rights, scope, scopeVal, actor) St.qAddAcl)
-  either (pure . err . T.pack . show) (pure . ok) r'
+addAclIO :: Pool -> Int32 -> Int32 -> Text -> Maybe Int32 -> Maybe Int32 -> Maybe Int32 -> Maybe Int32 -> V.Vector Text -> Maybe Text -> Maybe Text -> IO (DataResult Int32)
+addAclIO pool actor docId principal u g r o rights scope scopeVal =
+  use pool (statement (docId, principal, u, g, r, o, rights, scope
+            , scopeVal, actor
+        ) St.qAddAcl)
+    <&> either (Left . show) Right
 
 
-removeAclIO :: Pool -> Int32 -> IO (ApiResult ())
-removeAclIO pool aclId = do
-  r <- use pool (statement aclId St.qRemoveAcl)
-  either (pure . err . T.pack . show) (const $ pure $ ok ()) r
+removeAclIO :: Pool -> Int32 -> IO (DataResult ())
+removeAclIO pool aclId =
+  use pool (statement aclId St.qRemoveAcl) <&> either (Left . show) Right
 
 
 -- Reports ----------------------------------------------------
-heatmapCountsIO :: Pool -> IO (ApiResult [CountCell])
-heatmapCountsIO pool = do
-  r <- use pool (statement () St.qHeatmapCounts)
-  either (pure . err . T.pack . show) (pure . ok . V.toList) r
+heatmapCountsIO :: Pool -> IO (DataResult (V.Vector CountCell))
+heatmapCountsIO pool =
+  use pool (statement () St.qHeatmapCounts) <&> either (Left . show) Right
 
-sankeyDomainStatusIO :: Pool -> IO (ApiResult [SankeyAB])
-sankeyDomainStatusIO pool = do
-  r <- use pool (statement () St.qSankeyDomainStatus)
-  either (pure . err . T.pack . show) (pure . ok . V.toList) r
 
-sankeyStatusTierIO :: Pool -> IO (ApiResult [SankeyAB])
-sankeyStatusTierIO pool = do
-  r <- use pool (statement () St.qSankeyStatusTier)
-  either (pure . err . T.pack . show) (pure . ok . V.toList) r
+sankeyDomainStatusIO :: Pool -> IO (DataResult (V.Vector SankeyAB))
+sankeyDomainStatusIO pool =
+  use pool (statement () St.qSankeyDomainStatus) <&> either (Left . show) Right
+
+
+sankeyStatusTierIO :: Pool -> IO (DataResult (V.Vector SankeyAB))
+sankeyStatusTierIO pool =
+  use pool (statement () St.qSankeyStatusTier) <&> either (Left . show) Right
+
 
 -- Audit ------------------------------------------------------
-recordAuditIO :: Pool -> Int32 -> Text -> Maybe Int32 -> Maybe Text -> Maybe Int32 -> Maybe Text -> IO (ApiResult ())
-recordAuditIO pool actor action mDoc mTargetType mTargetUid mUA = do
-  r <- use pool (statement (actor, action, mDoc, mTargetType, mTargetUid, mUA) St.qAudit)
-  either (pure . err . T.pack . show) (const $ pure $ ok ()) r
+recordAuditIO :: Pool -> Int32 -> Text -> Maybe Int32 -> Maybe Text -> Maybe Int32 -> Maybe Text -> IO (DataResult ())
+recordAuditIO pool actor action mDoc mTargetType mTargetUid mUA =
+  use pool (statement (actor, action, mDoc, mTargetType, mTargetUid, mUA) St.qAudit) <&> either (Left . show) Right

@@ -4,7 +4,9 @@
 module HBDoc.Parse.Structured
   ( parse
   , parseDocxFile
+  , parseDocxBytes
   , parseMarkdownFile
+  , parseMarkdownBytes
   , parsePlainTextFile
   , parsePandocDoc
   ) where
@@ -21,10 +23,12 @@ import Data.Default (def)
 import Data.Foldable (foldl', toList)
 import Data.Int (Int32)
 import Data.List (find)
+import Data.Maybe (fromMaybe)
 import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NE
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as Te
 import qualified Data.Text.IO as TIO
 import Data.Void (Void)
 import System.FilePath (takeBaseName, takeExtension)
@@ -160,6 +164,20 @@ parseMarkdownFile path = do
       Left err -> Left (show err)
       Right doc -> parsePandocDoc path "markdown" doc
 
+
+parseMarkdownBytes :: Maybe FilePath -> LBS.ByteString -> IO (Either String Doc0)
+parseMarkdownBytes mbPath bytes =
+  let
+    txt = Te.decodeUtf8 $ LBS.toStrict bytes
+    path = fromMaybe "-" mbPath
+  in do
+  res <- Pandoc.runIO $ Pandoc.readMarkdown def [(path, txt)]
+  pure $
+    case res of
+      Left err -> Left (show err)
+      Right doc -> parsePandocDoc path "markdown" doc
+
+
 parseDocxFile :: FilePath -> IO (Either String Doc0)
 parseDocxFile path = do
   bytes <- LBS.readFile path
@@ -168,6 +186,16 @@ parseDocxFile path = do
     case res of
       Left err -> Left (show err)
       Right doc -> parsePandocDoc path "docx" doc
+
+
+parseDocxBytes :: Maybe FilePath -> LBS.ByteString -> IO (Either String Doc0)
+parseDocxBytes mbPath bytes = do
+  res <- Pandoc.runIO $ Pandoc.readDocx def bytes
+  pure $
+    case res of
+      Left err -> Left (show err)
+      Right doc -> parsePandocDoc (fromMaybe "-" mbPath) "docx" doc
+
 
 parsePlainTextFile :: FilePath -> IO (Either String Doc0)
 parsePlainTextFile path = do
