@@ -5,6 +5,7 @@ module HBDoc.Manage.Types where
 import Data.Int (Int32)
 import Data.Text (Text)
 import Data.Time (UTCTime, Day)
+import Data.UUID (UUID)
 import Data.Vector (Vector)
 import GHC.Generics (Generic)
 
@@ -12,34 +13,36 @@ import Data.Aeson (FromJSON, ToJSON)
 
 -- List row for documents
 data DocRow = DocRow {
-    uidDoc      :: !Int32
-  , titleDoc    :: !Text
+    uidDoc :: !Int32
+  , eidDoc :: UUID
+  , titleDoc :: !Text
   , domainCode' :: !Text
-  , typeCodeDoc   :: !Text
-  , tierCodeDoc   :: !Text
+  , typeCodeDoc :: !Text
+  , tierCodeDoc :: !Text
   , statusCodeDoc :: !Text
-  , dueDateDoc    :: !(Maybe Day)
-  , updatedAtDoc  :: !UTCTime
+  , dueDateDoc :: !(Maybe Day)
+  , updatedAtDoc :: !UTCTime
   }
   deriving (Show, Eq, Generic, ToJSON, FromJSON)
 
 -- Document detail (summary + latest version id if present)
 data DocDetail = DocDetail {
-    uidDtl         :: !Int32
-  , titleDtl       :: !Text
-  , domainFkDtl    :: !Int32
-  , typeFkDtl      :: !Int32
-  , tierFkDtl      :: !Int32
-  , statusFkDtl    :: !Int32
+    uidDtl :: !Int32
+  , eidDtl :: UUID
+  , titleDtl :: !Text
+  , domainFkDtl :: !Int32
+  , typeFkDtl :: !Int32
+  , tierFkDtl :: !Int32
+  , statusFkDtl :: !Int32
   , ownerUserFkDtl :: !(Maybe Int32)
-  , residencyDtl   :: !(Maybe Text)
-  , aiAllowedDtl   :: !Bool
-  , legalHoldDtl   :: !Bool
-  , dueDateDtl     :: !(Maybe Day)
-  , createdAtDtl   :: !UTCTime
-  , updatedAtDtl   :: !UTCTime
+  , residencyDtl :: !(Maybe Text)
+  , aiAllowedDtl :: !Bool
+  , legalHoldDtl :: !Bool
+  , dueDateDtl :: !(Maybe Day)
+  , createdAtDtl :: !UTCTime
+  , updatedAtDtl :: !UTCTime
   , latestVerUidDtl :: !(Maybe Int32)
-  , latestVerNoDtl  :: !(Maybe Int32)
+  , latestVerNoDtl :: !(Maybe Int32)
   }
   deriving (Show, Eq, Generic, ToJSON, FromJSON)
 
@@ -80,7 +83,7 @@ data User = User {
   , emailUsr :: !Text
   , fullNameUsr :: !Text
   , isExternalUsr :: !Bool
-  , orgNameUsr  :: !(Maybe Text)
+  , orgNameUsr :: !(Maybe Text)
   } deriving (Show, Eq, Generic, ToJSON, FromJSON)
 
 
@@ -94,25 +97,25 @@ data Category = Category {
 
 -- Version snapshot
 data DocVersion = DocVersion {
-    uidVer        :: !Int32
-  , docFkVer      :: !Int32
-  , noVer         :: !Int32
-  , noteVer       :: !(Maybe Text)
+    uidVer :: !Int32
+  , docFkVer :: !Int32
+  , noVer :: !Int32
+  , noteVer :: !(Maybe Text)
   , contentRefVer :: !(Maybe Text)
   , contentShaVer :: !(Maybe Text)
-  , createdByVer  :: !(Maybe Int32)
-  , createdAtVer  :: !UTCTime
+  , createdByVer :: !(Maybe Int32)
+  , createdAtVer :: !UTCTime
   }
   deriving (Show, Eq, Generic, ToJSON, FromJSON)
 
 
 -- Comment
 data Comment = Comment {
-    uidCmt     :: !Int32
-  , docFkCmt   :: !Int32
-  , parentCmt  :: !(Maybe Int32)
-  , authorCmt  :: !(Maybe Int32)
-  , bodyCmt    :: !Text
+    uidCmt :: !Int32
+  , docFkCmt :: !Int32
+  , parentCmt :: !(Maybe Int32)
+  , authorCmt :: !(Maybe Int32)
+  , bodyCmt :: !Text
   , resolvedCmt:: !Bool
   , createdCmt :: !UTCTime
   } deriving (Show, Eq, Generic, ToJSON, FromJSON)
@@ -164,11 +167,11 @@ data ApiResult a = ApiResult {
 
 -- Result of an import
 data ImportResult = ImportResult {
-    attachmentUidIR   :: !Int32 -- attachment.uid of source DOCX
-  , versionUidIR      :: !Int32 -- document_version.uid for parsed tree
-  , versionNoIR       :: !Int32
-  , contentRefIR      :: !Text -- object key for JSON block tree
-  , textCharsIR       :: !Int32 -- number of characters in plaintext
+    attachmentUidIR :: !Int32 -- attachment.uid of source DOCX
+  , versionUidIR :: !Int32 -- document_version.uid for parsed tree
+  , versionNoIR :: !Int32
+  , contentRefIR :: !Text -- object key for JSON block tree
+  , textCharsIR :: !Int32 -- number of characters in plaintext
   }
   deriving (Show, Eq, Generic, ToJSON, FromJSON)
 

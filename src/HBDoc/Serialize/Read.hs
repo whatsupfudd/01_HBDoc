@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE DeriveAnyClass #-}
 
 module HBDoc.Serialize.Read
   ( DbDocInfo(..)
@@ -5,7 +7,9 @@ module HBDoc.Serialize.Read
   , HBDocDb
   , BlockDb
   , loadDocumentLive
+  , loadDocumentByEid
   , loadDocumentAtSeq
+  , loadDocumentByEidAtSeq
   , loadSubtreeLive
   , loadSubtreeAtSeq
   ) where
@@ -17,7 +21,11 @@ import Data.Maybe (isNothing)
 import Data.Scientific (Scientific)
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.UUID (UUID)
+import qualified Data.UUID as Uu
 import qualified Data.Vector as V
+
+import GHC.Generics (Generic)
 
 import qualified Data.Aeson as Ae
 import qualified Hasql.Session as Ses
@@ -36,21 +44,21 @@ import qualified HBDoc.Serialize.Statements as Dbs
 import HBDoc.Manage.Types (DocDetail(..))
 
 
-data DbDocInfo = DbDocInfo
-  { uidDI :: !Int32
+data DbDocInfo = DbDocInfo {
+    uidDI :: !Int32
   , asOfSeqDI :: !(Maybe Int64)
   , latestVerUidDI :: !(Maybe Int32)
   , latestVerNoDI :: !(Maybe Int32)
   }
-  deriving (Show, Eq)
+  deriving (Show, Eq, Generic, Ae.ToJSON)
 
-data DbBlockInfo = DbBlockInfo
-  { uidBI :: !Int64
+data DbBlockInfo = DbBlockInfo {
+    uidBI :: !Int64
   , parentUidBI :: !(Maybe Int64)
   , seqPosBI :: !Scientific
   , hasMoreBI :: !(Maybe Bool)
   }
-  deriving (Show, Eq)
+  deriving (Show, Eq, Generic, Ae.ToJSON)
 
 
 type HBDocDb = HBDoc DbDocInfo DbBlockInfo
@@ -60,6 +68,8 @@ type BlockDb = Block DbBlockInfo
 loadDocumentLive :: Pool -> Int32 -> IO (Either String HBDocDb)
 loadDocumentLive pool docId = loadDocumentAtSeq pool docId maxLiveSeq
 
+loadDocumentByEid :: Pool -> UUID -> IO (Either String HBDocDb)
+loadDocumentByEid pool docEid = loadDocumentByEidAtSeq pool docEid maxLiveSeq
 
 loadDocumentAtSeq :: Pool -> Int32 -> Int64 -> IO (Either String HBDocDb)
 loadDocumentAtSeq pool docId asOfSeq = do
@@ -69,6 +79,20 @@ loadDocumentAtSeq pool docId asOfSeq = do
     Right Nothing -> pure $ Left "@[loadDocumentAtSeq] document_not_found"
     Right (Just detail) -> do
       eRows <- runStatement pool Dbs.qDocumentBlocksAsOfSeq (docId, asOfSeq)
+      -- putStrLn $ "@[loadDocumentAtSeq] eRows: " <> show eRows
+      case eRows of
+        Left err -> pure $ Left err
+        Right rows -> pure $ buildDocument detail asOfSeq (V.toList rows)
+
+
+loadDocumentByEidAtSeq :: Pool -> UUID -> Int64 -> IO (Either String HBDocDb)
+loadDocumentByEidAtSeq pool docEid asOfSeq = do
+  eDetail <- runStatement pool Dbs.qDocDetailByEid docEid
+  case eDetail of
+    Left err -> pure $ Left err
+    Right Nothing -> pure . Left $ "@[loadDocumentByEidAtSeq] not found: " <> show docEid
+    Right (Just detail) -> do
+      eRows <- runStatement pool Dbs.qDocumentBlocksAsOfSeq (detail.uidDtl, asOfSeq)
       -- putStrLn $ "@[loadDocumentAtSeq] eRows: " <> show eRows
       case eRows of
         Left err -> pure $ Left err
@@ -156,7 +180,7 @@ buildRowMap rowsFlat =
 buildChildMap :: [Dbs.BlockAtSeqRow] -> Either String (M.Map (Maybe Int64) [Int64])
 buildChildMap rowsFlat =
   Right $
-    M.map (sortOn fst >>> map snd) $ M.fromListWith (++) [ 
+    M.map (sortOn fst >>> map snd) $ M.fromListWith (++) [
         (row.parentUidBas, [(row.seqPosBas, row.uidBlkBas)]) | row <- rowsFlat
       ]
   where
@@ -186,7 +210,7 @@ buildBlockFromAtSeq rowsById childMap row = do
   childRows <- traverse (lookupChildInRows rowsById) childUids
   childBlks <- traverse (buildBlockFromAtSeq rowsById childMap) childRows
 
-  pure $ Block { 
+  pure $ Block {
       kindBk = kind
     , contentBk = row.contentBas
     , semBk = semVal
@@ -241,7 +265,7 @@ buildBlockFromDfs rowsById childMap row = do
   childRows <- traverse (lookupChildInRows rowsById) childUids
   childBlks <- traverse (buildBlockFromDfs rowsById childMap) childRows
 
-  pure $ Block { 
+  pure $ Block {
       kindBk = kind
     , contentBk = row.contentBdr
     , semBk = semVal

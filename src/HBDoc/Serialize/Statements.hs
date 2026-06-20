@@ -10,6 +10,7 @@ import Data.Profunctor (dimap)
 import Data.Scientific (Scientific)
 import Data.Text (Text)
 import Data.Time (Day, UTCTime)
+import Data.UUID (UUID)
 import Data.Vector (Vector)
 import qualified Data.Vector as V
 import GHC.Generics (Generic)
@@ -88,11 +89,12 @@ qCanUser =
 qListDocs :: St.Statement (Maybe Int32, Maybe Int32, Maybe Int32, Maybe Text, Maybe Day, Maybe UTCTime) (Vector DocRow)
 qListDocs =
   dimap id
-    (V.map (\(uid, title, domainCode, docTypeCode, tierCode, statusCode, dueDate, updatedAt) ->
-      DocRow uid title domainCode docTypeCode tierCode statusCode dueDate updatedAt))
+    (V.map (\(uid, eid, title, domainCode, docTypeCode, tierCode, statusCode, dueDate, updatedAt) ->
+      DocRow uid eid title domainCode docTypeCode tierCode statusCode dueDate updatedAt))
     [vectorStatement|
       select
           d.uid::int4
+        , d.eid::uuid
         , d.title::text
         , dm.code::text
         , dt.code::text
@@ -123,14 +125,15 @@ qListDocs =
 qDocDetail :: St.Statement Int32 (Maybe DocDetail)
 qDocDetail =
   dimap id (\case
-      Just (uid, title, domainFk, typeFk, tierFk, statusFk, ownerFk, residency, aiAllowed, legalHold, dueDate, createdAt, updatedAt, latestVerUid, latestVerNo) ->
-        Just (DocDetail uid title domainFk typeFk tierFk statusFk ownerFk residency aiAllowed legalHold dueDate createdAt updatedAt latestVerUid latestVerNo)
+      Just (uid, eid, title, domainFk, typeFk, tierFk, statusFk, ownerFk, residency, aiAllowed, legalHold, dueDate, createdAt, updatedAt, latestVerUid, latestVerNo) ->
+        Just (DocDetail uid eid title domainFk typeFk tierFk statusFk ownerFk residency aiAllowed legalHold dueDate createdAt updatedAt latestVerUid latestVerNo)
       Nothing ->
         Nothing
     )
     [maybeStatement|
       select
           d.uid::int4
+        , d.eid::uuid
         , d.title::text
         , d.domain_fk::int4
         , d.doc_type_fk::int4
@@ -155,6 +158,45 @@ qDocDetail =
       ) dv on true
       where d.uid = $1::int4
     |]
+
+
+qDocDetailByEid :: St.Statement UUID (Maybe DocDetail)
+qDocDetailByEid =
+  dimap id (\case
+      Just (uid, eid, title, domainFk, typeFk, tierFk, statusFk, ownerFk, residency, aiAllowed, legalHold, dueDate, createdAt, updatedAt, latestVerUid, latestVerNo) ->
+        Just (DocDetail uid eid title domainFk typeFk tierFk statusFk ownerFk residency aiAllowed legalHold dueDate createdAt updatedAt latestVerUid latestVerNo)
+      Nothing ->
+        Nothing
+    )
+    [maybeStatement|
+      select
+          d.uid::int4
+        , d.eid::uuid
+        , d.title::text
+        , d.domain_fk::int4
+        , d.doc_type_fk::int4
+        , d.tier_fk::int4
+        , d.status_fk::int4
+        , d.owner_user_fk::int4?
+        , d.residency::text?
+        , d.ai_allowed::bool
+        , d.legal_hold::bool
+        , d.due_date::date?
+        , d.created_at::timestamptz
+        , d.updated_at::timestamptz
+        , dv.uid::int4?
+        , dv.version_no::int4?
+      from kms.document d
+      left join lateral (
+        select v.uid, v.version_no
+        from kms.document_version v
+        where v.document_fk = d.uid
+        order by v.version_no desc
+        limit 1
+      ) dv on true
+      where d.eid = $1::uuid
+    |]
+
 
 qCreateDoc :: St.Statement (Text, Int32, Int32, Int32, Int32, Maybe Int32, Maybe Text, Bool, Bool, Maybe Day, Int32) Int32
 qCreateDoc =

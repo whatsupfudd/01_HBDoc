@@ -1,6 +1,6 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.37.0.
+-- This file has been generated from package.yaml by hpack version 0.38.1.
 --
 -- see: https://github.com/sol/hpack
 
@@ -24,6 +24,13 @@ source-repository head
 
 library
   exposed-modules:
+      HBDoc.Analysis.Context
+      HBDoc.Analysis.Features
+      HBDoc.Analysis.Flatten
+      HBDoc.Analysis.Path
+      HBDoc.Analysis.Select
+      HBDoc.Analysis.Traverse
+      HBDoc.Analysis.Types
       HBDoc.Core.Attributes
       HBDoc.Core.BlockKind
       HBDoc.Core.Build
