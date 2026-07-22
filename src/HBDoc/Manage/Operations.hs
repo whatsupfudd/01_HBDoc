@@ -72,11 +72,11 @@ document (title, domain_fk, doc_type_fk, tier_fk, status_fk,
     , $6::text?, $7::bool, $8::bool, $9::date?
     , $10::int4)
 -}
-createDoc :: Pool -> Int32 -> Text -> Int32 -> Int32 -> Int32 -> Int32 -> Maybe Int32
+createDoc :: Pool -> Int32 -> Text ->Text -> Int32 -> Int32 -> Int32 -> Int32 -> Maybe Int32
           -> Maybe Text -> Bool -> Bool -> Maybe Day
           -> IO (DataResult Int32)
-createDoc pool actor title domainID typeID tierID statusID ownerID residency aiAllowed legalHold due =
-  use pool (statement (title, domainID, typeID, tierID, statusID, ownerID
+createDoc pool actor code title domainID typeID tierID statusID ownerID residency aiAllowed legalHold due =
+  use pool (statement (code, title, domainID, typeID, tierID, statusID, ownerID
             , residency, aiAllowed, legalHold, due, actor
           ) St.qCreateDoc)
     <&> either (Left . show) Right

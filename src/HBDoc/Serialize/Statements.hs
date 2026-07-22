@@ -198,11 +198,12 @@ qDocDetailByEid =
     |]
 
 
-qCreateDoc :: St.Statement (Text, Int32, Int32, Int32, Int32, Maybe Int32, Maybe Text, Bool, Bool, Maybe Day, Int32) Int32
+qCreateDoc :: St.Statement (Text, Text, Int32, Int32, Int32, Int32, Maybe Int32, Maybe Text, Bool, Bool, Maybe Day, Int32) Int32
 qCreateDoc =
   [singletonStatement|
     insert into kms.document
-      ( title
+      ( code
+      , title
       , domain_fk
       , doc_type_fk
       , tier_fk
@@ -216,16 +217,17 @@ qCreateDoc =
       )
     values
       ( $1::text
-      , $2::int4
+      , $2::text
       , $3::int4
       , $4::int4
       , $5::int4
-      , $6::int4?
-      , $7::text?
-      , $8::bool
+      , $6::int4
+      , $7::int4?
+      , $8::text?
       , $9::bool
-      , $10::date?
-      , $11::int4
+      , $10::bool
+      , $11::date?
+      , $12::int4
       )
     returning uid::int4
   |]
@@ -391,13 +393,13 @@ qAddAcl =
       )
     values
       ( $1::int4
-      , $2::text
+      , ($2::text)::kms.principal_kind
       , $3::int4?
       , $4::int4?
       , $5::int4?
       , $6::int4?
       , $7::text[]
-      , $8::text?
+      , ($8::text?)::kms.scope_kind?
       , $9::text?
       , $10::int4
       )
@@ -824,3 +826,29 @@ qGetSubtreeDfsAtSeq =
         , $5::int8?
       )
     |]
+  
+-- Support tables queries:
+
+getDomainByName :: St.Statement Text (Maybe Int32)
+getDomainByName =
+  [maybeStatement|
+    select uid::int4 from kms.domaintb where code = $1::text
+  |]
+
+getTypeByName :: St.Statement Text (Maybe Int32)
+getTypeByName =
+  [maybeStatement|
+    select uid::int4 from kms.doc_type where code = $1::text
+  |]
+
+getTierByName :: St.Statement Text (Maybe Int32)
+getTierByName =
+  [maybeStatement|
+    select uid::int4 from kms.tier where code = $1::text
+  |]
+
+getStatusByName :: St.Statement Text (Maybe Int32)
+getStatusByName =
+  [maybeStatement|
+    select uid::int4 from kms.statustb where code = $1::text
+  |]
