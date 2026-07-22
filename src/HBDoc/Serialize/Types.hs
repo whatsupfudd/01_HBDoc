@@ -13,4 +13,5 @@ data SerializeInfo docSpec blkSpec = SerializeInfo {
     , shaHex :: Text
     , originalName :: Text
     , document :: HBDoc docSpec blkSpec
+    , debugFlag :: Int32
   }

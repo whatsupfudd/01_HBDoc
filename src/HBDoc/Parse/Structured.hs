@@ -19,14 +19,16 @@ import Data.Char
   , toUpper
   )
 
+import qualified Data.ByteString.Lazy as LBS
 import Data.Default (def)
+import Data.Map (Map)
 import Data.Foldable (foldl', toList)
 import Data.Int (Int32)
-import Data.List (find)
+import Data.List (find, mapAccumL)
+import qualified Data.Map as Mp
 import Data.Maybe (fromMaybe)
 import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NE
-import qualified Data.ByteString.Lazy as LBS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as Te
 import qualified Data.Text.IO as TIO
@@ -71,8 +73,8 @@ type Parser = Parsec Void T.Text
 type Block0 = Block ()
 type Doc0 = HBDoc () ()
 
-data ProtoBlock
-  = ProtoReady Block0
+data ProtoBlock =
+    ProtoReady Block0
   | ProtoDetected DetectedListItem
   deriving (Eq, Show)
 
@@ -469,7 +471,7 @@ isRootOutlineItem = \case
   RootNormal _ -> False
 
 pandocBlockToProtoNoHeading :: P.Block -> [ProtoBlock]
-pandocBlockToProtoNoHeading = \case
+pandocBlockToProtoNoHeading aBlk = case aBlk of
   P.Plain inlinesBlk ->
     [ paragraphTextToProto (normalizeInlineText (inlineText inlinesBlk)) ]
 
@@ -557,14 +559,121 @@ pandocBlockToProtoNoHeading = \case
             (T.intercalate "\n" (map inlineText linesBlk))
     in [ paragraphTextToProto txt ]
 
+  P.Table attrTbl captionTbl columnsTbl headTbl bodiesTbl footTbl ->
+    [ ProtoReady
+        (pandocTableToBlock attrTbl captionTbl columnsTbl headTbl bodiesTbl footTbl)
+    ]
+
   _ ->
     [ ProtoReady
         (mkCustom0
           "other-pandoc-block"
           Nothing
-          (Just (CustomSemantics "other-pandoc-block" mempty))
+          (Just (CustomSemantics "other-pandoc-block" (Mp.singleton "raw" (T.pack $ show aBlk))))
           [])
     ]
+
+
+pandocTableToBlock :: P.Attr -> P.Caption -> [P.ColSpec] -> P.TableHead -> [P.TableBody] ->
+        P.TableFoot -> Block0
+pandocTableToBlock _ captionTbl columnsTbl headTbl bodiesTbl footTbl =
+  let
+    rowsHead = pandocTableHeadToBlocks columnsTbl headTbl
+    rowsBody = concat
+          [ pandocTableBodyToBlocks columnsTbl ixBody bodyTbl
+          | (ixBody, bodyTbl) <- zip [0 :: Int ..] bodiesTbl
+          ]
+    rowsFoot = pandocTableFootToBlocks columnsTbl footTbl
+    semanticsTbl = TableSemantics { headerRowsTbs = nonZeroInt32Mb (length rowsHead)
+          , captionTbs = pandocCaptionTextMb captionTbl
+          }
+  in
+  mkTable0 semanticsTbl (rowsHead <> rowsBody <> rowsFoot)
+
+
+pandocTableHeadToBlocks :: [P.ColSpec] -> P.TableHead -> [Block0]
+pandocTableHeadToBlocks columnsTbl (P.TableHead _ rowsTbl) =
+  map (pandocTableRowToBlock columnsTbl) rowsTbl
+
+pandocTableBodyToBlocks :: [P.ColSpec] -> Int -> P.TableBody -> [Block0]
+pandocTableBodyToBlocks columnsTbl _ (P.TableBody _ _ rowsHead rowsBody) =
+  map (pandocTableRowToBlock columnsTbl) (rowsHead <> rowsBody)
+
+pandocTableFootToBlocks :: [P.ColSpec] -> P.TableFoot -> [Block0]
+pandocTableFootToBlocks columnsTbl (P.TableFoot _ rowsTbl) =
+  map (pandocTableRowToBlock columnsTbl) rowsTbl
+
+pandocTableRowToBlock :: [P.ColSpec] -> P.Row -> Block0
+pandocTableRowToBlock columnsTbl (P.Row _ cellsTbl) =
+  mkTableRow0 (pandocTableCellsToBlocks columnsTbl cellsTbl)
+
+pandocTableCellsToBlocks :: [P.ColSpec] -> [P.Cell] -> [Block0]
+pandocTableCellsToBlocks columnsTbl cellsTbl =
+  snd (mapAccumL stepCell 0 cellsTbl)
+  where
+  stepCell :: Int -> P.Cell -> (Int, Block0)
+  stepCell ixColumn cellTbl =
+    let
+      spanColumn = pandocCellColumnSpan cellTbl
+      cellBlk = pandocTableCellToBlock columnsTbl ixColumn cellTbl
+    in
+    (ixColumn + spanColumn, cellBlk)
+
+
+pandocTableCellToBlock :: [P.ColSpec] -> Int -> P.Cell -> Block0
+pandocTableCellToBlock columnsTbl ixColumn
+    (P.Cell _ alignmentCell _ _ blocksCell) =
+  let
+    alignmentEffective = effectiveCellAlignment columnsTbl ixColumn alignmentCell
+    semanticsCell = TableCellSemantics { 
+            rowSpanTcs = Nothing
+          , colSpanTcs = Nothing
+          , alignmentTcs = pandocAlignmentTextMb alignmentEffective
+          }
+    blocksHBDoc = pandocToForest (P.Pandoc nullMeta blocksCell)
+  in promoteLeadCellParagraph semanticsCell blocksHBDoc
+
+
+promoteLeadCellParagraph :: TableCellSemantics -> [Block0] -> Block0
+promoteLeadCellParagraph semanticsCell blocksCell =
+  case blocksCell of
+    blk : rest
+      | isPlainParagraph blk -> mkTableCell0 blk.contentBk semanticsCell rest
+    _ -> mkTableCell0 Nothing semanticsCell blocksCell
+
+
+effectiveCellAlignment :: [P.ColSpec] -> Int -> P.Alignment -> P.Alignment
+effectiveCellAlignment columnsTbl ixColumn alignmentCell =
+  case alignmentCell of
+    P.AlignDefault -> maybe P.AlignDefault fst (indexMb ixColumn columnsTbl)
+    _ -> alignmentCell
+
+
+pandocAlignmentTextMb :: P.Alignment -> Maybe T.Text
+pandocAlignmentTextMb = \case
+  P.AlignLeft -> Just "left"
+  P.AlignRight -> Just "right"
+  P.AlignCenter -> Just "center"
+  P.AlignDefault -> Nothing
+
+
+pandocCellColumnSpan :: P.Cell -> Int
+pandocCellColumnSpan (P.Cell _ _ _ (P.ColSpan countSpan) _) = max 1 countSpan
+
+
+pandocCaptionTextMb :: P.Caption -> Maybe T.Text
+pandocCaptionTextMb (P.Caption shortMb blocksCaption) =
+  let textFull =
+        normalizeInlineText
+          (T.intercalate " " (map blockTextApprox blocksCaption))
+      textShort =
+        normalizeInlineText
+          (maybe "" inlineText shortMb)
+  in nonEmptyTextMb $
+      if T.null textFull
+        then textShort
+        else textFull
+
 
 nativeItemToBlock :: ListMarker -> [P.Block] -> Block0
 nativeItemToBlock marker bodyBlk =
@@ -983,10 +1092,8 @@ inlineText =
 inlineText1 :: P.Inline -> T.Text
 inlineText1 = \case
   P.Str txt -> txt
-  P.Space -> " "
-  P.SoftBreak -> " "
-  P.LineBreak -> "\n"
   P.Emph xs -> inlineText xs
+  P.Underline xs -> inlineText xs
   P.Strong xs -> inlineText xs
   P.Strikeout xs -> inlineText xs
   P.Superscript xs -> inlineText xs
@@ -995,13 +1102,16 @@ inlineText1 = \case
   P.Quoted _ xs -> inlineText xs
   P.Cite _ xs -> inlineText xs
   P.Code _ txt -> txt
+  P.Space -> " "
+  P.SoftBreak -> " "
+  P.LineBreak -> "\n"
   P.Math _ txt -> txt
   P.RawInline _ txt -> txt
   P.Link _ xs _ -> inlineText xs
   P.Image _ xs _ -> inlineText xs
-  P.Note blocksBlk ->
-    "[" <> T.intercalate " " (map blockTextApprox blocksBlk) <> "]"
+  P.Note blocksBlk -> "[" <> T.intercalate " " (map blockTextApprox blocksBlk) <> "]"
   P.Span _ xs -> inlineText xs
+
 
 blockTextApprox :: P.Block -> T.Text
 blockTextApprox = \case
@@ -1010,19 +1120,43 @@ blockTextApprox = \case
   P.Header _ _ xs -> inlineText xs
   P.CodeBlock _ txt -> txt
   P.BlockQuote xs -> T.intercalate " " (map blockTextApprox xs)
-  P.OrderedList _ itemsBlk ->
-    T.intercalate " " (map (T.intercalate " " . map blockTextApprox) itemsBlk)
-  P.BulletList itemsBlk ->
-    T.intercalate " " (map (T.intercalate " " . map blockTextApprox) itemsBlk)
-  P.DefinitionList entriesBlk ->
-    T.intercalate " "
-      [ inlineText termBlk <> " " <> T.intercalate " " (concatMap (map blockTextApprox) defsBlk)
+  P.OrderedList _ itemsBlk -> T.intercalate " " (map (T.intercalate " " . map blockTextApprox) itemsBlk)
+  P.BulletList itemsBlk -> T.intercalate " " (map (T.intercalate " " . map blockTextApprox) itemsBlk)
+  P.DefinitionList entriesBlk -> T.intercalate " " [ 
+        inlineText termBlk <> " " <> T.intercalate " " (concatMap (map blockTextApprox) defsBlk)
       | (termBlk, defsBlk) <- entriesBlk
       ]
+  P.Table _ captionTbl _ headTbl bodiesTbl footTbl -> tableTextApprox captionTbl headTbl bodiesTbl footTbl
   P.RawBlock _ txt -> txt
   P.Div _ xs -> T.intercalate " " (map blockTextApprox xs)
   P.LineBlock xss -> T.intercalate "\n" (map inlineText xss)
   _ -> ""
+
+
+tableTextApprox :: P.Caption -> P.TableHead -> [P.TableBody] -> P.TableFoot -> T.Text
+tableTextApprox captionTbl headTbl bodiesTbl footTbl =
+  normalizeInlineText $ T.intercalate " " $ captionBlocks captionTbl <> tableHeadBlocks headTbl
+        <> concatMap tableBodyBlocks bodiesTbl <> tableFootBlocks footTbl
+  where
+  captionBlocks :: P.Caption -> [T.Text]
+  captionBlocks (P.Caption shortMb blocksCaption) =
+    map blockTextApprox blocksCaption <> maybe [] (\xs -> [inlineText xs]) shortMb
+
+  tableHeadBlocks :: P.TableHead -> [T.Text]
+  tableHeadBlocks (P.TableHead _ rowsTbl) = map tableRowTextApprox rowsTbl
+
+  tableBodyBlocks :: P.TableBody -> [T.Text]
+  tableBodyBlocks (P.TableBody _ _ rowsHead rowsBody) = map tableRowTextApprox (rowsHead <> rowsBody)
+
+  tableFootBlocks :: P.TableFoot -> [T.Text]
+  tableFootBlocks (P.TableFoot _ rowsTbl) = map tableRowTextApprox rowsTbl
+
+tableRowTextApprox :: P.Row -> T.Text
+tableRowTextApprox (P.Row _ cellsTbl) = T.intercalate " | " (map tableCellTextApprox cellsTbl)
+
+tableCellTextApprox :: P.Cell -> T.Text
+tableCellTextApprox (P.Cell _ _ _ _ blocksCell) = T.intercalate " " (map blockTextApprox blocksCell)
+
 
 plainDocumentP :: Parser [T.Text]
 plainDocumentP = do
@@ -1293,3 +1427,19 @@ nonEmptyTextMb :: T.Text -> Maybe T.Text
 nonEmptyTextMb txt =
   let txt' = T.strip txt
   in if T.null txt' then Nothing else Just txt'
+
+
+nonZeroInt32Mb :: Int -> Maybe Int32
+nonZeroInt32Mb n
+  | n <= 0 = Nothing
+  | otherwise = Just (fromIntegral n)
+
+
+indexMb :: Int -> [a] -> Maybe a
+indexMb ix xs
+  | ix < 0 = Nothing
+  | otherwise =
+      case drop ix xs of
+        x : _ -> Just x
+        [] -> Nothing
+

@@ -1,7 +1,7 @@
 {-# LANGUAGE LambdaCase #-}
 module HBDoc.Serialize.Write where
 
-import Control.Monad (forM_, when)
+import Control.Monad (forM_, unless)
 import Data.Int (Int32, Int64)
 import Data.Text (Text)
 import qualified Data.Text as T
@@ -31,75 +31,65 @@ blockCount :: [Block spec] -> Int
 blockCount blocksDoc =
   length blocksDoc + sum (map (blockCount . childrenBk) blocksDoc)
 
-serializeDocument :: Pool -> SerializeInfo docSpec blkSpec -> IO (Either String (Either String Int64))
+serializeDocument :: Pool -> SerializeInfo docSpec blkSpec -> IO (Either String Int64)
 serializeDocument pool sInfo = do
-  let doc = document sInfo
-      validationIssues = validateHBDoc doc
+  let
+    doc = sInfo.document
+    validationIssues = validateHBDoc doc
 
-  when (not (null validationIssues)) $
-    putStrLn ("@[serializeDocument] validation issues: " <> show (length validationIssues))
+  unless (null validationIssues) $
+    putStrLn $ "@[serializeDocument] validation issues: " <> show (length validationIssues)
 
-  if hasErrors validationIssues
-    then
-      pure $
-        Left $
-          T.unpack (T.intercalate "\n" (renderIssues validationIssues))
-    else do
-      docIdRes <-
-        case mbDocID sInfo of
-          Just docId ->
-            pure (Right docId)
-          Nothing ->
-            pure (Left "@[serializeDocument] no docId provided")
+  if hasErrors validationIssues then
+    pure . Left . T.unpack $ T.intercalate "\n" (renderIssues validationIssues)
+  else do
+    docIdRes <- case sInfo.mbDocID of
+      Just docId -> pure $ Right docId
+      Nothing -> pure $ Left "@[serializeDocument] no docId provided"
 
-      case docIdRes of
-        Left errTxt ->
-          pure (Left errTxt)
+    case docIdRes of
+      Left errTxt -> pure $ Left errTxt
+      Right docId -> do
+        userRes <- resolveUserByEmail pool sInfo.userName
+        case userRes of
+          Left errTxt -> pure $ Left errTxt
+          Right Nothing ->
+            pure . Left $ "@[serializeDocument] user not found: " <> T.unpack sInfo.userName
+          Right (Just user) -> do
+            trxRes <- useTx pool $ serializeDocumentTx sInfo user docId
+            putStrLn $ "@[serializeDocument] trxRes: " <> show trxRes
+            case trxRes of
+              Left usageErr -> pure . Left $ "@[serializeDocument] transaction error: " <> show usageErr
+              Right apiRes -> pure apiRes
 
-        Right docId -> do
-          userRes <- resolveUserByEmail pool (userName sInfo)
-          case userRes of
-            Left errTxt ->
-              pure (Left errTxt)
-
-            Right Nothing ->
-              pure (Left ("@[serializeDocument] user not found: " <> T.unpack (userName sInfo)))
-
-            Right (Just user) -> do
-              trxRes <- useTx pool (serializeDocumentTx sInfo user docId)
-              case trxRes of
-                Left usageErr ->
-                  pure (Left ("@[serializeDocument] transaction error: " <> show usageErr))
-                Right apiRes ->
-                  pure (Right apiRes)
 
 serializeDocumentTx :: SerializeInfo docSpec blkSpec -> User -> Int32 -> Tx.Transaction (Either String Int64)
 serializeDocumentTx sInfo user docId = do
   canEdit <- Tx.statement (user.uidUsr, "edit" :: Text, docId) St.qCanUser
   if not canEdit then
-    pure (Left "forbidden:edit")
+    pure $ Left "forbidden:edit"
   else do
     (domFk, tierFk, stFk, mRes) <- Tx.statement docId St.qDocMeta
     mBlocked <- Tx.statement (domFk, tierFk, stFk, mRes) St.qPolicyBlockImport
     case mBlocked of
-      Just True -> pure (Left "blocked_by_policy:import")
+      Just True -> pure $ Left "blocked_by_policy:import"
       _ -> do
         _attUid <-
           Tx.statement
             ( docId
-            , originalName sInfo
-            , contentType sInfo
-            , size sInfo
-            , key sInfo
-            , shaHex sInfo
+            , sInfo.originalName
+            , sInfo.contentType
+            , sInfo.size
+            , sInfo.key
+            , sInfo.shaHex
             , user.uidUsr
             )
             St.qInsertAttachment
 
         rootUid <- Tx.statement (docId, user.uidUsr) St.qEnsureRoot
 
-        let rootBlk = rootBlkDc (document sInfo)
-
+        let
+          rootBlk = rootBlkDc sInfo.document
         case kindBk rootBlk of
           ContainerKB -> do
             forM_ (childrenBk rootBlk) (writeBlockTree user.uidUsr docId (Just rootUid))
@@ -112,10 +102,10 @@ serializeDocumentTx sInfo user docId = do
               , Nothing :: Maybe Text
               )
               St.qAudit
-            pure (Right rootUid)
+            pure $ Right rootUid
 
           otherKind ->
-            pure (Left $ T.unpack ("invalid_root_kind:" <> renderKindCode otherKind))
+            pure . Left . T.unpack $ "invalid_root_kind:" <> renderKindCode otherKind
 
 
 writeBlockTree :: Int32 -> Int32 -> Maybe Int64 -> Block spec -> Tx.Transaction Int64

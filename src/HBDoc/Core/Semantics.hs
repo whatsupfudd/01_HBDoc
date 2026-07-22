@@ -27,6 +27,7 @@ data TableSemantics = TableSemantics {
 data TableCellSemantics = TableCellSemantics {
     rowSpanTcs :: !(Maybe Int32)
   , colSpanTcs :: !(Maybe Int32)
+  , alignmentTcs :: !(Maybe Text)
   }
   deriving (Show, Eq, Ord, Generic, ToJSON, FromJSON)
 
